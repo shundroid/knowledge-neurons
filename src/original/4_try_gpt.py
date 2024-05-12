@@ -25,7 +25,7 @@ model.eval()
 inputs = tokenizer("Alan Turing works in the field of", return_tensors="pt")
 print(list(inputs))
 print(inputs["input_ids"])
-lm_logits, presents = model(
+_, lm_logits, presents = model(
   input_ids=inputs["input_ids"],
 )
 

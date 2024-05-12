@@ -255,10 +255,12 @@ class MLP(nn.Module):
         self.act = gelu
         self.dropout = nn.Dropout(config.resid_pdrop)
 
-    def forward(self, x):
+    def forward(self, x, tgt_pos, tmp_score):
         h = self.act(self.c_fc(x))
+        if tgt_pos is not None:
+            h[:, tgt_pos, :] = tmp_score
         h2 = self.c_proj(h)
-        return self.dropout(h2)
+        return self.dropout(h2), h
 
 class Block(nn.Module):
     def __init__(self, n_ctx, config, scale=False, output_attentions=False, keep_multihead_output=False):
@@ -270,18 +272,18 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.mlp = MLP(4 * nx, config)
 
-    def forward(self, x, layer_past=None, head_mask=None):
+    def forward(self, x, layer_past=None, head_mask=None, tgt_pos=None, tmp_score=None):
         output_attn = self.attn(self.ln_1(x), layer_past=layer_past, head_mask=head_mask)
         if self.output_attentions:
             attentions, a, present = output_attn
         else:
             a, present = output_attn
         x = x + a
-        m = self.mlp(self.ln_2(x))
+        m, ffn_weights = self.mlp(self.ln_2(x), tgt_pos, tmp_score)
         x = x + m
         if self.output_attentions:
-            return attentions, x, present
-        return x, present
+            return attentions, x, present, ffn_weights
+        return x, present, ffn_weights
 
 
 class GPT2LMHead(nn.Module):
@@ -581,7 +583,9 @@ class GPT2Model(GPT2PreTrainedModel):
         """
         return [h.attn.multihead_output for h in self.h]
 
-    def forward(self, input_ids, position_ids=None, token_type_ids=None, past=None, head_mask=None):
+    def forward(
+            self, input_ids, position_ids=None, token_type_ids=None, past=None, head_mask=None,
+            tgt_pos=None, tgt_layer=None, tmp_score=None):
         if past is None:
             past_length = 0
             past = [None] * len(self.h)
@@ -624,21 +628,31 @@ class GPT2Model(GPT2PreTrainedModel):
         presents = []
         all_attentions = []
         all_hidden_states = []
+        ffn_weights = None
         for i, (block, layer_past) in enumerate(zip(self.h, past)):
             all_hidden_states.append(hidden_states.view(*output_shape))
-            outputs = block(hidden_states, layer_past, head_mask[i])
+            if tgt_layer == i:
+                outputs = block(hidden_states, layer_past, head_mask[i], tgt_pos=tgt_pos, tmp_score=tmp_score)
+            else:
+                outputs = block(hidden_states, layer_past, head_mask[i])
             if self.output_attentions:
-                attentions, hidden_states, present = outputs
+                if tgt_layer == i:
+                    attentions, hidden_states, present, ffn_weights = outputs
+                else:
+                    attentions, hidden_states, present, _ = outputs
                 all_attentions.append(attentions)
             else:
-                hidden_states, present = outputs
+                if tgt_layer == i:
+                    hidden_states, present, ffn_weights = outputs
+                else:
+                    hidden_states, present, _ = outputs
             presents.append(present)
         hidden_states = self.ln_f(hidden_states)
         all_hidden_states.append(hidden_states.view(*output_shape))
 
         if self.output_attentions:
-            return all_attentions, all_hidden_states, presents
-        return all_hidden_states, presents
+            return all_attentions, all_hidden_states, presents, ffn_weights
+        return all_hidden_states, presents, ffn_weights
 
 
 class GPT2LMHeadModel(GPT2PreTrainedModel):
@@ -705,14 +719,19 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         self.transformer.set_num_special_tokens(num_special_tokens)
         self.lm_head.set_embeddings_weights(self.transformer.wte.weight, predict_special_tokens=predict_special_tokens)
 
-    def forward(self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None, head_mask=None):
-        transformer_output = self.transformer(input_ids, position_ids, token_type_ids, past, head_mask)
+    def forward(
+            self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None, head_mask=None,
+            tgt_pos=None, tgt_layer=None, tmp_score=None, tgt_label=None):
+        if self.transformer.output_attentions and not tmp_score is None:
+            raise AssertionError("currently output_attentions and tmp_score cannot be used at the same time")
+        transformer_output = self.transformer(input_ids, position_ids, token_type_ids, past, head_mask, tgt_pos, tgt_layer, tmp_score)
         if self.transformer.output_attentions:
-            all_attentions, hidden_states, presents = transformer_output
+            all_attentions, hidden_states, presents, ffn_weights = transformer_output
         else:
-            hidden_states, presents = transformer_output
+            hidden_states, presents, ffn_weights = transformer_output
         hidden_states = hidden_states[-1]
 
+        # (batch_size, sequence_length, config.vocab_size)
         lm_logits = self.lm_head(hidden_states)
         if lm_labels is not None:
             # Shift so that tokens < n predict n
@@ -723,6 +742,10 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)),
                             shift_labels.view(-1))
             return loss
+        if not tmp_score is None:
+            # tgt_label: index
+            gradient = torch.autograd.grad(torch.unbind(lm_logits[:, -1, tgt_label]), tmp_score)
+            return gradient, lm_logits, presents
         if self.transformer.output_attentions:
             return all_attentions, lm_logits, presents
-        return lm_logits, presents
+        return ffn_weights, lm_logits, presents
