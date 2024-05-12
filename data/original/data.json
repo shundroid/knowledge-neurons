@@ -1,0 +1,131 @@
+{
+  "P101": {
+    "B0": [
+      [
+        "Alan Turing works in the field of",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing specializes in",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "The specialization of Alan Turing is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "The expertise of Alan Turing is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "The domain of activity of Alan Turing is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "The domain of work of Alan Turing is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing's area of work is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing's domain of work is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing's domain of activity is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing's expertise is",
+        "logic",
+        "P101(field of work)"
+      ],
+      [
+        "Alan Turing works in the area of",
+        "logic",
+        "P101(field of work)"
+      ]
+    ]
+  },
+  "P108": {
+    "B0": [
+      [
+        "Steve Jobs works for",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Jobs, who works for",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Jobs is employed by",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Jobs, who is employed by",
+        "Apple",
+        "P108(employer)"
+      ]
+    ],
+    "B1": [
+      [
+        "Steve Wozniak works for",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Wozniak, who works for",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Wozniak is employed by",
+        "Apple",
+        "P108(employer)"
+      ],
+      [
+        "Steve Wozniak, who is employed by",
+        "Apple",
+        "P108(employer)"
+      ]
+    ]
+  },
+  "P463": {
+    "B0": [
+      [
+        "Albania is a member of",
+        "NATO",
+        "P463(member of)"
+      ],
+      [
+        "Albania belongs to the organization of",
+        "NATO",
+        "P463(member of)"
+      ],
+      [
+        "Albania is a part of the",
+        "NATO",
+        "P463(member of)"
+      ],
+      [
+        "Albania is affiliated with",
+        "NATO",
+        "P463(member of)"
+      ]
+    ]
+  }
+}
