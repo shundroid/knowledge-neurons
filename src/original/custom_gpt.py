@@ -257,10 +257,12 @@ class MLP(nn.Module):
 
     def forward(self, x, tgt_pos, tmp_score):
         h = self.act(self.c_fc(x))
-        if tgt_pos is not None:
+        if tgt_pos is not None and tmp_score is not None:
             h[:, tgt_pos, :] = tmp_score
         h2 = self.c_proj(h)
-        return self.dropout(h2), h
+        if tgt_pos is not None:
+            return self.dropout(h2), h[:, tgt_pos]
+        return self.dropout(h2), None
 
 class Block(nn.Module):
     def __init__(self, n_ctx, config, scale=False, output_attentions=False, keep_multihead_output=False):
@@ -724,6 +726,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             tgt_pos=None, tgt_layer=None, tmp_score=None, tgt_label=None):
         if self.transformer.output_attentions and not tmp_score is None:
             raise AssertionError("currently output_attentions and tmp_score cannot be used at the same time")
+        if tmp_score is not None:
+            batch_size = tmp_score.shape[0]
+            input_ids = input_ids.repeat(batch_size, 1)
         transformer_output = self.transformer(input_ids, position_ids, token_type_ids, past, head_mask, tgt_pos, tgt_layer, tmp_score)
         if self.transformer.output_attentions:
             all_attentions, hidden_states, presents, ffn_weights = transformer_output
@@ -742,10 +747,10 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)),
                             shift_labels.view(-1))
             return loss
-        if not tmp_score is None:
+        if tmp_score is not None:
             # tgt_label: index
             gradient = torch.autograd.grad(torch.unbind(lm_logits[:, -1, tgt_label]), tmp_score)
-            return gradient, lm_logits, presents
+            return gradient[0], lm_logits, presents
         if self.transformer.output_attentions:
             return all_attentions, lm_logits, presents
         return ffn_weights, lm_logits, presents

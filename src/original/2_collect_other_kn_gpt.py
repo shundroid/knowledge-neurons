@@ -10,8 +10,8 @@ import numpy as np
 import json
 from collections import Counter
 
-from transformers import BertTokenizer
-from custom_bert import BertForMaskedLM
+from transformers import GPT2Tokenizer
+from custom_gpt import GPT2LMHeadModel
 
 # set logger
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -89,12 +89,11 @@ def convert_to_triplet_ig(ig_list):
     return ig_triplet
 
 if __name__ == "__main__":
-    kn_dir = "../../results/kn/"
     target_rel = "P463"
     target_bag = 0
 
-    tmp_data_path = "../../data/PARAREL/data_all_allbags.json"
-    bert_model = "bert-base-cased"
+    tmp_data_path = "../../data/original/data.json"
+    gpt2_model = "gpt2"
     max_seq_length = 128
     seed = 42
     # Integrated Gradients Params
@@ -108,8 +107,7 @@ if __name__ == "__main__":
 
     # prepare eval set
     with open(tmp_data_path, "r") as f:
-        # Array<[SentenceWithMask, Answer, Relation]>
-        sentences = json.load(f)[target_rel][target_bag]
+        sentences = json.load(f)[target_rel][f"B{target_bag}"]
 
     # model setup
     device = torch.device("cuda:0")
@@ -118,10 +116,10 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-    tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=False)
+    tokenizer = GPT2Tokenizer.from_pretrained(gpt2_model, do_lower_case=False)
 
     torch.cuda.empty_cache()
-    model = BertForMaskedLM.from_pretrained(bert_model)
+    model = GPT2LMHeadModel.from_pretrained(gpt2_model)
     model.to(device)
     model = torch.nn.DataParallel(model)
     model.eval()
@@ -131,35 +129,27 @@ if __name__ == "__main__":
 
     cnt = Counter()
     for eval_example in sentences:
-        eval_features, tokens_info = example2feature(eval_example, max_seq_length, tokenizer)
-        baseline_ids, input_ids, input_mask, segment_ids = eval_features['baseline_ids'], eval_features['input_ids'], eval_features['input_mask'], eval_features['segment_ids']
-        baseline_ids = torch.tensor(baseline_ids, dtype=torch.long).unsqueeze(0)
-        input_ids = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
-        input_mask = torch.tensor(input_mask, dtype=torch.long).unsqueeze(0)
-        segment_ids = torch.tensor(segment_ids, dtype=torch.long).unsqueeze(0)
-        baseline_ids = baseline_ids.to(device)
-        input_ids = input_ids.to(device)
-        input_mask = input_mask.to(device)
-        segment_ids = segment_ids.to(device)
-        gold_label = tokenizer.convert_tokens_to_ids(tokens_info["gold_obj"])
-
-        mask_pos = tokens_info["tokens"].index("[MASK]")
-        print("mask_pos", mask_pos)
+        input_text = eval_example[0]
+        gold_label_text = eval_example[1]
+        inputs = tokenizer(input_text, return_tensors="pt")
+        input_ids = inputs["input_ids"].to(device)
+        gold_label = tokenizer.convert_tokens_to_ids(gold_label_text)
+        input_len = input_ids.shape[1]
 
         kn_candidates = []
 
         max_ig = -999
 
-        for tgt_layer in range(model.module.bert.config.num_hidden_layers):
-            for tgt_pos in range(len(tokens_info["tokens"])):
+        for tgt_layer in range(model.module.transformer.config.n_layer):
+            for tgt_pos in range(input_len):
             # for tgt_pos in [mask_pos]:
-                ffn_weights, logits = model(input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, tgt_pos=tgt_pos, mask_pos=mask_pos, tgt_layer=tgt_layer)
+                ffn_weights, logits, _ = model(input_ids=input_ids, tgt_pos=tgt_pos, tgt_layer=tgt_layer)
                 scaled_weights, weights_step = scaled_input(ffn_weights, batch_size, num_batch)
                 scaled_weights.requires_grad_(True)
                 ig = torch.zeros(ffn_weights.shape[1]).to(device)
                 for batch_idx in range(num_batch):
                     batch_weights = scaled_weights[batch_idx*batch_size:(batch_idx+1)*batch_size]
-                    _, grad = model(input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, tgt_pos=tgt_pos, mask_pos=mask_pos, tgt_layer=tgt_layer, tmp_score=batch_weights, tgt_label=gold_label)
+                    grad, _, _ = model(input_ids=input_ids, tgt_pos=tgt_pos, tgt_layer=tgt_layer, tmp_score=batch_weights, tgt_label=gold_label)
                     grad = grad.sum(dim=0)
                     ig = torch.add(ig, grad)
                 ig = ig * weights_step
@@ -182,36 +172,5 @@ if __name__ == "__main__":
     for ((l, idx), count) in cnt.most_common(20):
         dump["kn"].append([[l, idx], count])
     
-    with open(os.path.join(allpos_dir, f"{target_rel}-bag{target_bag}.json"), "w") as f:
+    with open(os.path.join(allpos_dir, f"gpt2-{target_rel}-bag{target_bag}.json"), "w") as f:
         json.dump(dump, f, indent=2)
-
-    # squeeze kn
-    # for 
-    # threshold_ratio = 0.2
-    # mode_ratio_bag = 0.7
-    # for max_it in range(6):
-    #     ave
-
-    # test run
-    # _, logits = model(input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, tgt_pos=tgt_pos, tgt_layer=0)
-    # pred_label_id = logits[0].argmax()
-    # pred_label = tokenizer.convert_ids_to_tokens(pred_label_id.item())
-    # print(sentences[sentence_idx], pred_label)
-
-    # for tgt_layer in range(model.bert.config.num_hidden_layers):
-    # print("prediction from each value slot of knowledge neurons")
-    # for kn in kn_bag:
-    #     layer = kn[0]
-    #     pos = kn[1]
-    #     value_slot = model.module.bert.encoder.layer[layer].output.dense.weight[:, pos]
-    #     logits = model.module.cls(value_slot)
-    #     label_id = logits.argmax()
-    #     label = tokenizer.convert_ids_to_tokens(label_id.item())
-    #     print(label)
-
-
-    # print("layers: ", model.module.bert.config.num_hidden_layers)
-    # for tgt_layer in range(model.bert.config.num_hidden_layers):
-    #     ffn_weights, _ = model(input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, tgt_pos=tgt_pos, tgt_layer=tgt_layer)
-
-    # main()
