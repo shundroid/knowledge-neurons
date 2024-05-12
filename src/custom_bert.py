@@ -295,7 +295,7 @@ class BertEncoder(nn.Module):
         if imp_op == 'return':
             imp_weights = []
         for layer_index, layer_module in enumerate(self.layer):
-            if imp_pos is not None:
+            if layer_index == 11 and imp_pos is not None:
                 imp_pos_at_this_layer = [x for x in imp_pos if x[0] == layer_index]
             else:
                 imp_pos_at_this_layer = None

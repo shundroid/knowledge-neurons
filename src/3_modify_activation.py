@@ -313,8 +313,8 @@ def main():
         with open(os.path.join(args.kn_dir, f'{prefix}modify_activation_rlt.json'), 'w') as fw:
             json.dump(rlt_dict, fw, indent=2)
 
-    # eval_modification('')
-    eval_modification('base_')
+    eval_modification('')
+    # eval_modification('base_')
 
 if __name__ == "__main__":
     main()

@@ -198,7 +198,10 @@ def main():
     # prepare eval set
     if os.path.exists(args.tmp_data_path):
         with open(args.tmp_data_path, 'r') as f:
-            eval_bag_list_perrel = json.load(f)
+            tmp = json.load(f)
+            eval_bag_list_perrel = {}
+            eval_bag_list_perrel["P108"] = tmp["P108"]
+            eval_bag_list_perrel["P463"] = tmp["P463"]
     else:
         with open(args.data_path, 'r') as f:
             eval_bag_list_all = json.load(f)
@@ -242,7 +245,7 @@ def main():
             kn_bag_list = json.load(fr)
         kn_bag = kn_bag_list[bag_idx]
         kn_bag = select_kn(kn_bag, kn_bag_list)
-        print(kn_bag)
+        # print(kn_bag)
 
         results = {
             'success_updated': 0,
@@ -310,8 +313,11 @@ def main():
             lambda_list_1.append(value_norm / ori_pred_emb_norm * args.norm_lambda1)
             lambda_list_2.append(value_norm / tgt_emb_norm * args.norm_lambda2)
         for i, (layer, pos) in enumerate(kn_bag):
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= ori_pred_emb * lambda_list_1[i]
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] += tgt_emb * lambda_list_2[i]
+            # model.bert.encoder.layer[layer].output.dense.weight.requires_grad_(False)
+            # print("layer", layer, "pos", pos)
+            with torch.no_grad():
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= ori_pred_emb * lambda_list_1[i]
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] += tgt_emb * lambda_list_2[i]
 
         _, logits = model(input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, tgt_pos=tgt_pos, tgt_layer=0)  # (1, n_vocab)
         new_tgt_prob = F.softmax(logits, dim=-1)[0, tgt_label_id]  # scalar
@@ -328,8 +334,9 @@ def main():
 
         # recover knowledge
         for i, (layer, pos) in enumerate(kn_bag):
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] += ori_pred_emb * lambda_list_1[i]
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= tgt_emb * lambda_list_2[i]
+            with torch.no_grad():
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] += ori_pred_emb * lambda_list_1[i]
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= tgt_emb * lambda_list_2[i]
 
         if new_pred_label == tgt_ent:
             results['success_updated'] = 1
@@ -419,8 +426,9 @@ def main():
         tgt_emb = model.bert.embeddings.word_embeddings.weight[tgt_label_id]
         print(f'-- kn_num: {len(kn_bag)}')
         for i, (layer, pos) in enumerate(kn_bag):
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= ori_pred_emb * lambda_list_1[i]
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] += tgt_emb * lambda_list_2[i]
+            with torch.no_grad():
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= ori_pred_emb * lambda_list_1[i]
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] += tgt_emb * lambda_list_2[i]
 
         # inner relation
         inner_log_ppl_list = []
@@ -479,12 +487,14 @@ def main():
 
         # recover knowledge
         for i, (layer, pos) in enumerate(kn_bag):
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] += ori_pred_emb * lambda_list_1[i]
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= tgt_emb * lambda_list_2[i]
+            with torch.no_grad():
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] += ori_pred_emb * lambda_list_1[i]
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] -= tgt_emb * lambda_list_2[i]
 
         return results
 
     rels = list(eval_bag_list_perrel.keys())
+    # print(rels)
     ave_results = {
         'success_updated': [],
         'success_updated_5': [],

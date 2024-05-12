@@ -290,6 +290,7 @@ def main():
                     o_total += 1
                     if ori_pred_label == eval_example[1]:
                         o_correct += 1
+            break
         o_ppl = np.exp(np.array(o_log_ppl_list).mean())
         o_acc = o_correct / o_total
 
@@ -298,7 +299,8 @@ def main():
         # unk_emb = model.bert.embeddings.word_embeddings.weight[100]
         for layer, pos in kn_rel:
             # model.bert.encoder.layer[layer].output.dense.weight[:, pos] = unk_emb
-            model.bert.encoder.layer[layer].output.dense.weight[:, pos] = 0
+            with torch.no_grad():
+                model.bert.encoder.layer[layer].output.dense.weight[:, pos] = 0
         # ============================================== erase knowledge end =============================================================
 
         # ========================== eval self =====================
@@ -369,6 +371,7 @@ def main():
                     o_new_total += 1
                     if ori_pred_label == eval_example[1]:
                         o_new_correct += 1
+            break
         o_new_ppl = np.exp(np.array(o_new_log_ppl_list).mean())
         o_new_acc = o_new_correct / o_new_total
 

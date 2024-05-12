@@ -233,17 +233,20 @@ def main():
             eval_bag_list_perrel[bag_rel].append(eval_bag)
         with open(args.tmp_data_path, 'w') as fw:
             json.dump(eval_bag_list_perrel, fw, indent=2)
-
+    print("start eval")
     # evaluate args.debug bags for each relation
     for relation, eval_bag_list in eval_bag_list_perrel.items():
         if args.pt_relation is not None and relation != args.pt_relation:
             continue
+        print("found target relation", "size", len(eval_bag_list))
         # record running time
         tic = time.perf_counter()
         with jsonlines.open(os.path.join(args.output_dir, args.output_prefix + '-' + relation + '.rlt' + '.jsonl'), 'w') as fw:
             for bag_idx, eval_bag in enumerate(eval_bag_list):
+                print("next bag", bag_idx)
                 res_dict_bag = []
                 for eval_example in eval_bag:
+                    # print("next example", eval_example)
                     eval_features, tokens_info = example2feature(eval_example, args.max_seq_length, tokenizer)
                     # convert features to long type tensors
                     baseline_ids, input_ids, input_mask, segment_ids = eval_features['baseline_ids'], eval_features['input_ids'], eval_features['input_mask'], eval_features['segment_ids']
@@ -284,6 +287,8 @@ def main():
                         scaled_weights, weights_step = scaled_input(ffn_weights, args.batch_size, args.num_batch)  # (num_points, ffn_size), (ffn_size)
                         scaled_weights.requires_grad_(True)
 
+                        # print("ffn_size", ffn_weights.shape)
+
                         # integrated grad at the pred label for each layer
                         if args.get_ig_pred:
                             ig_pred = None
@@ -315,6 +320,7 @@ def main():
                     if args.get_base:
                         res_dict['base'] = convert_to_triplet_ig(res_dict['base'])
 
+                    # print(tokens_info, res_dict)
                     res_dict_bag.append([tokens_info, res_dict])
 
                 fw.write(res_dict_bag)

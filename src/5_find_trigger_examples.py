@@ -301,7 +301,7 @@ def main():
         if not filename.startswith('kn_bag-'):
             continue
         relation = filename.split('.')[0].split('-')[-1]
-        if relation != 'P740' and relation != 'P937':
+        if relation != 'P108' and relation != 'P463':
             continue
         with open(os.path.join(args.kn_dir, filename), 'r') as fr:
             kn_bag_list = json.load(fr)
