@@ -102,6 +102,20 @@
         "Apple",
         "P108(employer)"
       ]
+    ],
+    "B2": [
+      [
+        "Steve Jobs works for",
+        "Apple",
+        "P108(employer)"
+      ]
+    ],
+    "B3": [
+      [
+        "Steve Jobs, who works for",
+        "Apple",
+        "P108(employer)"
+      ]
     ]
   },
   "P463": {

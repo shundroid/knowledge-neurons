@@ -8,7 +8,7 @@ import torch
 import random
 import numpy as np
 import json
-from collections import Counter
+import matplotlib.pyplot as plt
 
 from transformers import GPT2Tokenizer
 from custom_gpt import GPT2LMHeadModel
@@ -31,9 +31,20 @@ def scaled_input(emb, batch_size, num_batch):
     return res, step[0]
 
 
+def convert_to_triplet_ig(ig_list):
+    ig_triplet = []
+    ig = np.array(ig_list)  # 12, 3072
+    max_ig = ig.max()
+    for i in range(ig.shape[0]):
+        for j in range(ig.shape[1]):
+            if ig[i][j] >= max_ig * 0.1:
+                ig_triplet.append([i, j, ig[i][j]])
+    return ig_triplet
+
 if __name__ == "__main__":
+    kn_dir = "../../results/kn/"
     target_rel = "P108"
-    target_bag = 3
+    target_bag = 0
 
     tmp_data_path = "../../data/original/data.json"
     gpt2_model = "gpt2"
@@ -43,13 +54,14 @@ if __name__ == "__main__":
     batch_size = 20
     num_batch = 1
 
+    allpos_dir = "../../results/allpos"
+
     threshold_ratio = 0.2
     mode_ratio_bag = 0.7
 
-    allpos_dir = "../../results/allpos/"
-
     # prepare eval set
     with open(tmp_data_path, "r") as f:
+        # Array<[SentenceWithMask, Answer, Relation]>
         sentences = json.load(f)[target_rel][f"B{target_bag}"]
 
     # model setup
@@ -67,25 +79,35 @@ if __name__ == "__main__":
     model = torch.nn.DataParallel(model)
     model.eval()
 
-    kn_candidates_bag = []
-    max_igs = []
+    n_layer = model.module.transformer.config.n_layer
+    print("n_layer", n_layer)
 
-    cnt = Counter()
-    for eval_example in sentences:
+    for i, eval_example in enumerate(sentences):
         input_text = eval_example[0]
         gold_label_text = eval_example[1]
         inputs = tokenizer(input_text, return_tensors="pt")
         input_ids = inputs["input_ids"].to(device)
-        gold_label = tokenizer.convert_tokens_to_ids(" " + gold_label_text)
+        input_readable_tokens = tokenizer.batch_decode(input_ids[0])
+        gold_label = tokenizer.encode(" " + gold_label_text)
         input_len = input_ids.shape[1]
 
-        kn_candidates = []
+        # Check probability
+        _, lm_logits, _ = model(input_ids=input_ids)
+        logits = lm_logits[0, -1]
+        pred_label_id = logits.argmax()
+        values, indices = torch.topk(logits, 10)
+        for rank, index in enumerate(indices):
+            print(f"top {rank+1}: {tokenizer.decode(index)} ({index})")
+        pred_label = tokenizer.convert_ids_to_tokens(pred_label_id.item())
 
-        max_ig = -999
+        gold_p = logits[gold_label]
+        print(logits.shape)
+        rank = (logits > gold_p).sum().item()
+        print("rank", rank, gold_label)
 
-        for tgt_layer in range(model.module.transformer.config.n_layer):
+        heatmap = np.zeros((input_len, n_layer))
+        for tgt_layer in range(n_layer):
             for tgt_pos in range(input_len):
-            # for tgt_pos in [mask_pos]:
                 ffn_weights, logits, _ = model(input_ids=input_ids, tgt_pos=tgt_pos, tgt_layer=tgt_layer)
                 scaled_weights, weights_step = scaled_input(ffn_weights, batch_size, num_batch)
                 scaled_weights.requires_grad_(True)
@@ -96,24 +118,10 @@ if __name__ == "__main__":
                     grad = grad.sum(dim=0)
                     ig = torch.add(ig, grad)
                 ig = ig * weights_step
-                max_ig = max(max_ig, torch.max(ig).item())
-                # ig = ig[ig >= max_ig * threshold_ratio]
-                for ig_idx, v in enumerate(ig.tolist()):
-                    kn_candidates.append((tgt_layer, tgt_pos, ig_idx, v))
-
-        max_igs.append(max_ig)
-        # re-check
-        kn_candidates = list(filter(lambda x: x[3] >= max_ig * threshold_ratio, kn_candidates))
-        # sorted_candidates = sorted(kn_candidates, key=lambda x: -x[3])
-        # print(sorted_candidates[0:10])
-        for (l, _, idx, _) in kn_candidates:
-            cnt.update([(l, idx)])
-
-        kn_candidates_bag.append(kn_candidates)
-        # for l, idx in cnt.most_common():
-    dump = { "max_igs": max_igs, "kn": [] }
-    for ((l, idx), count) in cnt.most_common(20):
-        dump["kn"].append([[l, idx], count])
-    
-    with open(os.path.join(allpos_dir, f"gpt2-{target_rel}-bag{target_bag}.json"), "w") as f:
-        json.dump(dump, f, indent=2)
+                heatmap[tgt_pos, tgt_layer] += ig.mean().item()
+        plt.yticks(range(input_len), [s.strip() for s in input_readable_tokens])
+        im = plt.imshow(heatmap, cmap="Purples")
+        plt.colorbar(im)
+        plt.text(3, 8, f"pred: {pred_label}, gold rank: {rank}")
+        plt.savefig(os.path.join(allpos_dir, f"gpt2-ig-{target_rel}-P{target_bag}-{i}.pdf"))
+        plt.close()
